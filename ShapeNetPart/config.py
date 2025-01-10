@@ -2,11 +2,12 @@ from types import SimpleNamespace
 from pathlib import Path
 from torch import nn
 import torch
+from os.path import dirname, abspath
 
 # ShapeNetPart dataset path
-data_path = Path("xxx/shapenetcore_partanno_segmentation_benchmark_v0_normal")
+data_path = Path(dirname(abspath(__file__)) + "/data/raw")
 
-presample_path = data_path.parent / "shapenet_part_presample.pt"
+presample_path = data_path.parent / "presample.pt"
 
 epoch = 250
 warmup = 20

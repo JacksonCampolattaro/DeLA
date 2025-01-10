@@ -127,7 +127,8 @@ class PartNormalDataset(Dataset):
 
 
 if __name__ == '__main__':
-    from pointnet2_ops import pointnet2_utils
+    # from pointnet2_ops import pointnet2_utils
+    from utils.furthest_point_sample import furthest_point_sample
     testset = PartNormalDataset(train=False)
     cnt = 0
     xyzs = []
@@ -136,7 +137,7 @@ if __name__ == '__main__':
     normals = []
     for xyz, normal, shape, seg in testset:
         xyz = torch.from_numpy(xyz).cuda().float().unsqueeze(0)
-        idx = pointnet2_utils.furthest_point_sample(xyz, 2048).long()
+        idx = furthest_point_sample(xyz, 2048).long()
         xyz = torch.gather(xyz, 1, idx.unsqueeze(-1).expand(-1, -1, 3)).cpu()
         xyzs.append(xyz)
         idx = idx.cpu()

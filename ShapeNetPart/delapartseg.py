@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).absolute().parent.parent))
 from utils.timm.models.layers import DropPath
-from utils.cutils import knn_edge_maxpooling
-from pointnet2_ops import pointnet2_utils
+from utils import knn_edge_maxpooling, furthest_point_sample
+# from pointnet2_ops import pointnet2_utils
 import random
 
 @autocast(False)
@@ -263,7 +263,7 @@ class DelaPartSeg(nn.Module):
     def forward(self, xyz, normal, shape):
         B, N, _ = xyz.shape
         if self.training:
-            idx = pointnet2_utils.furthest_point_sample(xyz, 2048).long()
+            idx = furthest_point_sample(xyz, 2048).long()
             mask = idx == 0
             mask[:, 0].fill_(False)
             ridx = (idx, mask)
