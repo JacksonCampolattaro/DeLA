@@ -44,7 +44,7 @@ class LFP(nn.Module):
     def forward(self, x, knn):
         B, N, C = x.shape
         x = self.proj(x)
-        x = knn_edge_maxpooling(x, knn, self.training)
+        x = knn_edge_maxpooling(x, knn)
         x = self.bn(x.view(B*N, -1)).view(B, N, -1)
         return x
 
