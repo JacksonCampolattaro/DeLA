@@ -6,8 +6,9 @@ from torch.utils.data import Dataset, Sampler
 from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).absolute().parent.parent))
-from utils.cutils import grid_subsampling, KDTree, grid_subsampling_test
 from config import processed_data_path
+from utils.grid_subsampling import grid_subsampling
+from scipy.spatial.kdtree import KDTree
 
 class S3DIS(Dataset):
     r"""
@@ -71,9 +72,9 @@ class S3DIS(Dataset):
 
         # here grid size is assumed 0.04, so estimated downsampling ratio is ~14
         if self.train:
-            indices = grid_subsampling(xyz, self.grid_size[0], 2.5 / 14)
+            indices = grid_subsampling(xyz, self.grid_size[0])
         else:
-            indices = grid_subsampling_test(xyz, self.grid_size[0], 2.5 / 14, pick=0)
+            indices = grid_subsampling(xyz, self.grid_size[0])
 
         xyz = xyz[indices]
 
@@ -121,11 +122,11 @@ class S3DIS(Dataset):
         full_xyz = xyz
         full_lbl = lbl
 
-        indices = grid_subsampling_test(xyz, self.grid_size[0], 2.5 / 14, pick=pick)
+        indices = grid_subsampling(xyz, self.grid_size[0])
         xyz = xyz[indices]
         col = col[indices].float()
 
-        full_nn = KDTree(xyz).knn(full_xyz, 1)[0].squeeze(-1)
+        full_nn = torch.from_numpy(KDTree(xyz.numpy()).query(full_xyz.numpy(), 1)[1])
     
         col.mul_(1 / 250.)
 
@@ -158,14 +159,14 @@ class S3DIS(Dataset):
             xyz = xyz[sub_indices]
             indices.append(sub_indices)
 
-        kdt = KDTree(xyz)
-        indices.append(kdt.knn(xyz, k.pop(), False)[0])
+        kdt = KDTree(xyz.numpy())
+        indices.append(torch.from_numpy(kdt.query(xyz.numpy(), k.pop())[1]))
 
         if not last:
             self.knn(xyz, grid_size, k, indices, full_xyz)
 
         if not first:
-            back = kdt.knn(full_xyz, 1, False)[0].squeeze(-1)
+            back = torch.from_numpy(kdt.query(full_xyz.numpy(), 1)[1])
             indices.append(back)
 
         return

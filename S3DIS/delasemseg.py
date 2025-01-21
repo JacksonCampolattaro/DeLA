@@ -5,12 +5,19 @@ from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from torch.nn.init import trunc_normal_
 import sys
 from pathlib import Path
+
+from torch_geometric.data import Data
+
+from utils.show_data import show_data
+
 sys.path.append(str(Path(__file__).absolute().parent.parent))
+from utils import knn_edge_maxpooling, knn_to_edges
 from utils.timm.models.layers import DropPath
-from utils.cutils import knn_edge_maxpooling
+
 
 def checkpoint(function, *args, **kwargs):
     return torch_checkpoint(function, *args, use_reentrant=False, **kwargs)
+
 
 class LFP(nn.Module):
     r"""
@@ -18,18 +25,20 @@ class LFP(nn.Module):
     f = linear(f)
     f_i = bn(max{f_j | j in knn_i} - f_i)
     """
+
     def __init__(self, in_dim, out_dim, bn_momentum, init=0.):
         super().__init__()
         self.proj = nn.Linear(in_dim, out_dim, bias=False)
         self.bn = nn.BatchNorm1d(out_dim, momentum=bn_momentum)
         nn.init.constant_(self.bn.weight, init)
-    
+
     def forward(self, x, knn):
         B, N, C = x.shape
         x = self.proj(x)
-        x = knn_edge_maxpooling(x, knn, self.training)
-        x = self.bn(x.view(B*N, -1)).view(B, N, -1)
+        x = knn_edge_maxpooling(x, knn)
+        x = self.bn(x.view(B * N, -1)).view(B, N, -1)
         return x
+
 
 class Mlp(nn.Module):
     def __init__(self, in_dim, mlp_ratio, bn_momentum, act, init=0.):
@@ -42,11 +51,12 @@ class Mlp(nn.Module):
             nn.BatchNorm1d(in_dim, momentum=bn_momentum),
         )
         nn.init.constant_(self.mlp[-1].weight, init)
-    
+
     def forward(self, x):
         B, N, C = x.shape
-        x = self.mlp(x.view(B*N, -1)).view(B, N, -1)
+        x = self.mlp(x.view(B * N, -1)).view(B, N, -1)
         return x
+
 
 class Block(nn.Module):
     def __init__(self, dim, depth, drop_path, mlp_ratio, bn_momentum, act):
@@ -66,11 +76,11 @@ class Block(nn.Module):
         else:
             drop_rates = torch.linspace(0., drop_path, self.depth).tolist()
             self.dp = [drop_path > 0.] * depth
-        #print(drop_rates)
+        # print(drop_rates)
         self.drop_paths = nn.ModuleList([
             DropPath(dpr) for dpr in drop_rates
         ])
-    
+
     def drop_path(self, x, i, pts):
         if not self.dp[i] or not self.training:
             return x
@@ -105,10 +115,10 @@ class Stage(nn.Module):
         nbr_hid_dim = args.nbr_dims[0] if first else args.nbr_dims[1] // 2
         nbr_out_dim = dim if first else args.nbr_dims[1]
         self.nbr_embed = nn.Sequential(
-            nn.Linear(nbr_in_dim, nbr_hid_dim//2, bias=False),
-            nn.BatchNorm1d(nbr_hid_dim//2, momentum=cp_bn_momentum),
+            nn.Linear(nbr_in_dim, nbr_hid_dim // 2, bias=False),
+            nn.BatchNorm1d(nbr_hid_dim // 2, momentum=cp_bn_momentum),
             args.act(),
-            nn.Linear(nbr_hid_dim//2, nbr_hid_dim, bias=False),
+            nn.Linear(nbr_hid_dim // 2, nbr_hid_dim, bias=False),
             nn.BatchNorm1d(nbr_hid_dim, momentum=cp_bn_momentum),
             args.act(),
             nn.Linear(nbr_hid_dim, nbr_out_dim, bias=False),
@@ -144,7 +154,7 @@ class Stage(nn.Module):
 
         if not last:
             self.sub_stage = Stage(args, depth + 1)
-    
+
     def local_aggregation(self, x, knn, pts):
         x = x.unsqueeze(0)
         x = self.blk(x, knn, pts)
@@ -162,7 +172,7 @@ class Stage(nn.Module):
             x = self.skip_proj(x)[ids] + self.lfp(x.unsqueeze(0), prev_knn).squeeze(0)[ids]
 
         knn = indices.pop()
-        
+
         # spatial encoding
         N, k = knn.shape
         nbr = xyz[knn] - xyz.unsqueeze(1)
@@ -178,14 +188,16 @@ class Stage(nn.Module):
         # main block
         knn = knn.unsqueeze(0)
         pts = pts_list.pop() if pts_list is not None else None
-        x = checkpoint(self.local_aggregation, x, knn, pts) if self.training and self.cp else self.local_aggregation(x, knn, pts)
+        x = checkpoint(self.local_aggregation, x, knn, pts) if self.training and self.cp else self.local_aggregation(x,
+                                                                                                                     knn,
+                                                                                                                     pts)
 
         # get subsequent feature maps
         if not self.last:
             sub_x, sub_c = self.sub_stage(x, xyz, knn, indices, pts_list)
         else:
             sub_x = sub_c = None
-        
+
         # regularization
         if self.training:
             rel_k = torch.randint(self.k, (N, 1), device=x.device)
@@ -201,12 +213,13 @@ class Stage(nn.Module):
         # upsampling
         x = self.postproj(x)
         if not self.first:
-            back_nn = indices[self.depth-1]
+            back_nn = indices[self.depth - 1]
             x = x[back_nn]
         x = self.drop(x)
         sub_x = sub_x + x if sub_x is not None else x
 
         return sub_x, sub_c
+
 
 class DelaSemSeg(nn.Module):
     r"""
@@ -226,11 +239,12 @@ class DelaSemSeg(nn.Module):
         use_cp:         False, enable gradient checkpoint to save memory
                         If True, blocks and spatial encoding are checkpointed
     """
+
     def __init__(self, args):
         super().__init__()
 
         # bn momentum for checkpointed layers
-        args.cp_bn_momentum = 1 - (1 - args.bn_momentum)**0.5
+        args.cp_bn_momentum = 1 - (1 - args.bn_momentum) ** 0.5
 
         self.stage = Stage(args)
 
@@ -242,7 +256,7 @@ class DelaSemSeg(nn.Module):
             args.act(),
             nn.Linear(hid_dim, out_dim)
         )
-        
+
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -253,8 +267,12 @@ class DelaSemSeg(nn.Module):
 
     def forward(self, xyz, x, indices, pts_list=None):
         indices = indices[:]
+        # show_data(Data(
+        #     pos=xyz, color=x[:, :3], height=x[:, 3],
+        #     batch=torch.cat([torch.full([count], fill_value=i) for i, count in enumerate(pts_list[-1])]),
+        #     edge_index=knn_to_edges(indices[-1])
+        # ))
         x, closs = self.stage(x, xyz, None, indices, pts_list)
         if self.training:
             return self.head(x), closs
         return self.head(x)
-

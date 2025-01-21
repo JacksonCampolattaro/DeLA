@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader
 import sys
 from pathlib import Path
 
+from utils.overall_accuracy import OverallAccuracy
+
 sys.path.append(str(Path(__file__).absolute().parent.parent))
 from utils.timm.scheduler.cosine_lr import CosineLRScheduler
 from utils.timm.optim import create_optimizer_v2
@@ -20,6 +22,9 @@ from putil import cls2parts, get_ins_mious
 if __name__ == '__main__':
 
     torch.set_float32_matmul_precision("high")
+    # torch.manual_seed(0)
+    # random.seed(0)
+    # np.random.seed(0)
 
     cur_id = "01"
     os.makedirs(f"output/log/{cur_id}", exist_ok=True)
@@ -52,8 +57,8 @@ if __name__ == '__main__':
     resume = False
     if resume:
         start_epoch = \
-        util.load_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler)[
-            "start_epoch"]
+            util.load_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler)[
+                "start_epoch"]
     else:
         start_epoch = 0
 
@@ -97,6 +102,7 @@ if __name__ == '__main__':
         cls_mious = torch.zeros(16, dtype=torch.float32, device="cuda")
         cls_nums = torch.zeros(16, dtype=torch.int32, device="cuda")
         ins_miou_list = []
+        acc = OverallAccuracy(num_classes=50)
         with torch.no_grad():
             for xyz, norm, shape, y in testdlr:
                 B, N, _ = xyz.shape
@@ -107,6 +113,7 @@ if __name__ == '__main__':
                 with autocast():
                     p = model(xyz, norm, shape).max(dim=1)[1].view(B, N)
                 batch_ins_mious = get_ins_mious(p, y, shape, cls2parts)
+                acc.update(p, y)
                 ins_miou_list += batch_ins_mious
                 for shape_idx in range(B):  # sample_idx
                     cur_gt_label = int(shape[shape_idx].cpu().numpy())
@@ -128,6 +135,7 @@ if __name__ == '__main__':
             print(f'Instance mIoU {ins_miou:.2f}, '
                   f'Class mIoU {cls_miou:.2f}, '
                   f'\n Class mIoUs {cls_mious}')
+            print(f"Acc {acc.compute()}")
 
         print(f"duration: {time() - now}")
         cur = ins_miou
