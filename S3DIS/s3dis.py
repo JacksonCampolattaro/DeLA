@@ -38,7 +38,7 @@ class S3DIS(Dataset):
         self.max_pts = 2**3**4
         if hasattr(args, "max_pts") and args.max_pts > 0:
             self.max_pts = args.max_pts
-        
+
         if warmup:
             maxpts = 0
             for p in self.paths:
@@ -47,7 +47,7 @@ class S3DIS(Dataset):
                     maxpts = s
                     maxp = p
             self.paths = [maxp]
-        
+
         self.datas = [torch.load(path) for path in self.paths]
 
 

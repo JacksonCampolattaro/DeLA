@@ -18,9 +18,24 @@ from utils.timm.optim import create_optimizer_v2
 import utils.util as util
 from delasemseg import DelaSemSeg
 from time import time, sleep
-from config import s3dis_args, s3dis_warmup_args, dela_args, batch_size, learning_rate as lr, epoch, warmup, label_smoothing as ls
+from config import s3dis_args, s3dis_warmup_args, dela_args, batch_size, learning_rate as lr, epoch, warmup, \
+    label_smoothing as ls
 
 torch.set_float32_matmul_precision("high")
+
+
+def count_parameters(module, indent="", name=""):
+    # Count the parameters in the module itself
+    total_params = sum(p.numel() for p in module.parameters())
+    # Print the module name and its parameter count
+    if list(module.parameters()):
+        std = torch.cat([p.flatten() for p in module.parameters()]).std().item()
+        print(f"{indent}{total_params:<10} {module.__class__.__name__} ({name}) [std={std:01.3g}]")
+
+    # Recursively count parameters in submodules
+    for name, sub_module in module.named_children():
+        count_parameters(sub_module, indent + "│ ", name)
+
 
 def warmup_fn(model, dataset):
     model.train()
@@ -36,7 +51,9 @@ def warmup_fn(model, dataset):
             loss = F.cross_entropy(p, y) + closs
         loss.backward()
 
+
 if __name__ == '__main__':
+    torch.manual_seed(2)
 
     cur_id = "01"
     os.makedirs(f"output/log/{cur_id}", exist_ok=True)
@@ -54,21 +71,24 @@ if __name__ == '__main__':
                           collate_fn=s3dis_collate_fn, shuffle=True, pin_memory=True,
                           persistent_workers=True, drop_last=True, num_workers=16)
     testdlr = DataLoader(S3DIS(s3dis_args, partition="5", loop=1, train=False), batch_size=1,
-                          collate_fn=s3dis_collate_fn, pin_memory=True,
-                          persistent_workers=True, num_workers=16)
+                         collate_fn=s3dis_collate_fn, pin_memory=True,
+                         persistent_workers=True, num_workers=16)
 
     step_per_epoch = len(traindlr)
 
     model = DelaSemSeg(dela_args).cuda()
+    count_parameters(model)
 
     optimizer = create_optimizer_v2(model, lr=lr, weight_decay=5e-2)
-    scheduler = CosineLRScheduler(optimizer, t_initial = epoch * step_per_epoch, lr_min = lr/10000,
-                                    warmup_t=warmup*step_per_epoch, warmup_lr_init = lr/20)
+    scheduler = CosineLRScheduler(optimizer, t_initial=epoch * step_per_epoch, lr_min=lr / 10000,
+                                  warmup_t=warmup * step_per_epoch, warmup_lr_init=lr / 20)
     scaler = GradScaler()
     # if wish to continue from a checkpoint
     resume = False
     if resume:
-        start_epoch = util.load_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler)["start_epoch"]
+        start_epoch = \
+        util.load_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler)[
+            "start_epoch"]
     else:
         start_epoch = 0
 
@@ -78,9 +98,8 @@ if __name__ == '__main__':
     ttls = util.AverageMeter()
     corls = util.AverageMeter()
     best = 0
-    # fixme: temporarily disabled warmup
-    warmup_fn(model, S3DIS(s3dis_warmup_args, partition="!5", loop=batch_size, warmup=True))
-    print('warmup finished')
+    # print('warmup')
+    # warmup_fn(model, S3DIS(s3dis_warmup_args, partition="!5", loop=batch_size, warmup=True))
     for i in range(start_epoch, epoch):
         model.train()
         ttls.reset()
@@ -92,7 +111,7 @@ if __name__ == '__main__':
             # print(t, "/", len(traindlr))
             # t += 1
             # show_data(Data(pos=xyz, y=y))
-            lam = scheduler_step/(epoch*step_per_epoch)
+            lam = scheduler_step / (epoch * step_per_epoch)
             lam = 3e-3 ** lam * .25
             scheduler.step(scheduler_step)
             scheduler_step += 1
@@ -108,11 +127,9 @@ if __name__ == '__main__':
             ttls.update(loss.item())
             corls.update(closs.item())
             optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss + closs*lam).backward()
+            scaler.scale(loss + closs * lam).backward()
             scaler.step(optimizer)
             scaler.update()
-            # if t > 10:
-            #     break
 
         print(f"epoch {i}:")
         print(f"loss: {round(ttls.avg, 4)} || cls: {round(corls.avg, 4)}")
@@ -138,4 +155,5 @@ if __name__ == '__main__':
             print("new best!")
             util.save_state(f"output/model/{cur_id}/best.pt", model=model)
 
-        util.save_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler, start_epoch=i+1)
+        util.save_state(f"output/model/{cur_id}/last.pt", model=model, optimizer=optimizer, scaler=scaler,
+                        start_epoch=i + 1)

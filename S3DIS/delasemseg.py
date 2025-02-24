@@ -6,7 +6,7 @@ from torch.nn.init import trunc_normal_
 import sys
 from pathlib import Path
 
-from torch_geometric.data import Data
+from torch_geometric.data import Data, HeteroData
 
 from utils.show_data import show_data
 
@@ -14,6 +14,59 @@ sys.path.append(str(Path(__file__).absolute().parent.parent))
 from utils import knn_edge_maxpooling, knn_to_edges
 from utils.timm.models.layers import DropPath
 
+def from_dela(xyz, x, indices, pts_list=None) -> HeteroData:
+    data = HeteroData()
+
+    # Reconstruct batch tensors for each node type
+    node_types = ['x3', 'x2', 'x1', 'x0']
+    for i, node_type in enumerate(node_types):
+        counts = pts_list[i]
+        if not counts:
+            continue  # Skip if no nodes for this type
+        batch = torch.repeat_interleave(torch.arange(len(counts)), torch.tensor(counts, dtype=torch.long))
+        data[node_type].batch = batch
+
+    # Assign pos and x to x0
+    data['x0'].pos = xyz
+    data['x0'].x = x
+
+    # Assign selection indices
+    data['x2'].selection_index = indices[4]
+    data['x1'].selection_index = indices[6]
+    data['x0'].selection_index = indices[8]
+
+    # Select points
+    data['x1'].pos = data['x0'].pos[data['x0'].selection_index]
+    data['x2'].pos = data['x1'].pos[data['x1'].selection_index]
+    data['x3'].pos = data['x2'].pos[data['x2'].selection_index]
+
+    # Reconstruct prolongation edges
+    # data['x1', 'to', 'x0'].edge_index = torch.stack([indices[0], torch.arange(data['x0'].num_nodes, device=indices[0].device)], dim=0)
+    # data['x2', 'to', 'x1'].edge_index = torch.stack([indices[1], torch.arange(data['x1'].num_nodes, device=indices[1].device)], dim=0)
+    # data['x3', 'to', 'x2'].edge_index = torch.stack([indices[2], torch.arange(data['x2'].num_nodes, device=indices[2].device)], dim=0)
+
+    # Reconstruct KNN edges
+
+    def build_knn_edge(node_type, index, src_node_type=None):
+        src_node_type = src_node_type or node_type
+        if data[node_type].num_nodes == 0 or index >= len(indices) or indices[index] is None:
+            return
+        targets = indices[index].flatten()
+        if len(targets) == 0:
+            return
+        num_src = data[src_node_type].num_nodes
+        sources = torch.arange(num_src, device=targets.device).repeat_interleave(24)
+        if len(sources) != len(targets):
+            return  # Shape mismatch
+        edge_index = torch.stack([sources, targets])
+        data[src_node_type, 'to', src_node_type].edge_index = edge_index
+
+    build_knn_edge('x3', 3)
+    build_knn_edge('x2', 5)
+    build_knn_edge('x1', 7)
+    build_knn_edge('x0', 9)
+
+    return data
 
 def checkpoint(function, *args, **kwargs):
     return torch_checkpoint(function, *args, use_reentrant=False, **kwargs)
@@ -76,7 +129,6 @@ class Block(nn.Module):
         else:
             drop_rates = torch.linspace(0., drop_path, self.depth).tolist()
             self.dp = [drop_path > 0.] * depth
-        # print(drop_rates)
         self.drop_paths = nn.ModuleList([
             DropPath(dpr) for dpr in drop_rates
         ])
@@ -143,6 +195,7 @@ class Stage(nn.Module):
             nn.Linear(dim, args.head_dim, bias=False),
         )
         nn.init.constant_(self.postproj[0].weight, (args.dims[0] / dim) ** 0.5)
+        # print((args.dims[0] / dim) ** 0.5)
 
         self.cor_std = 1 / args.cor_std[depth]
         self.cor_head = nn.Sequential(
@@ -208,6 +261,7 @@ class Stage(nn.Module):
             rel_p = x[rel_k] - x
             rel_p = self.cor_head(rel_p)
             closs = F.mse_loss(rel_p, rel_cor)
+            # print(torch.linalg.vector_norm(rel_cor, dim=-1).mean(), rel_cor.std(), closs.item())
             sub_c = sub_c + closs if sub_c is not None else closs
 
         # upsampling
@@ -266,6 +320,11 @@ class DelaSemSeg(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, xyz, x, indices, pts_list=None):
+        # show_data(Data(pos=xyz[indices[-6]]))
+        # show_data(from_dela(xyz, x, indices, pts_list))
+
+        # print(*[(l, l.shape) for l in indices], sep='\n')
+        # exit()
         indices = indices[:]
         # show_data(Data(
         #     pos=xyz, color=x[:, :3], height=x[:, 3],
@@ -273,6 +332,8 @@ class DelaSemSeg(nn.Module):
         #     edge_index=knn_to_edges(indices[-1])
         # ))
         x, closs = self.stage(x, xyz, None, indices, pts_list)
+        # print(closs)
+        # exit()
         if self.training:
             return self.head(x), closs
         return self.head(x)
