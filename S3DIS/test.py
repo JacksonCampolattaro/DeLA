@@ -13,34 +13,36 @@ from torch.cuda.amp import autocast
 
 torch.set_float32_matmul_precision("high")
 
-loop = 12
+loop = 1
 
-testdlr = DataLoader(S3DIS(s3dis_args, partition="5", loop=loop, train=False, test=True), batch_size=1,
-                      collate_fn=s3dis_test_collate_fn, pin_memory=True, num_workers=8)
+if __name__ == '__main__':
+    testdlr = DataLoader(S3DIS(s3dis_args, partition="5", loop=loop, train=False, test=True), batch_size=1,
+                          collate_fn=s3dis_test_collate_fn, pin_memory=True, num_workers=0)
+    print(len(testdlr))
 
-model = DelaSemSeg(dela_args).cuda()
+    model = DelaSemSeg(dela_args).cuda()
 
-util.load_state("pretrained/best.pt", model=model)
+    util.load_state("pretrained/best.pt", model=model)
 
-model.eval()
+    model.eval()
 
-metric = util.Metric(13)
-cum = 0
-cnt = 0
+    metric = util.Metric(13)
+    cum = 0
+    cnt = 0
 
-with torch.no_grad():
-    for xyz, feature, indices, nn, y in testdlr:
-            xyz = xyz.cuda(non_blocking=True)
-            feature = feature.cuda(non_blocking=True)
-            indices = [ii.cuda(non_blocking=True).long() for ii in indices[::-1]]
-            nn = nn.cuda(non_blocking=True).long()
-            with autocast():
-                p = model(xyz, feature, indices)
-            cum = cum + p[nn]
-            cnt += 1
-            if cnt % loop == 0:
-                y = y.cuda(non_blocking=True)
-                metric.update(cum, y)
-                cnt = cum = 0
+    with torch.no_grad():
+        for xyz, feature, indices, nn, y in testdlr:
+                xyz = xyz.cuda(non_blocking=True)
+                feature = feature.cuda(non_blocking=True)
+                indices = [ii.cuda(non_blocking=True).long() for ii in indices[::-1]]
+                nn = nn.cuda(non_blocking=True).long()
+                with autocast():
+                    p = model(xyz, feature, indices)
+                cum = cum + p[nn]
+                cnt += 1
+                if cnt % loop == 0:
+                    y = y.cuda(non_blocking=True)
+                    metric.update(cum, y)
+                    cnt = cum = 0
 
-metric.print("test: ")
+    metric.print("test: ")

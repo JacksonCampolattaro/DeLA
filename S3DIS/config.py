@@ -1,3 +1,4 @@
+from os.path import dirname, abspath
 from pathlib import Path
 from types import SimpleNamespace
 from copy import deepcopy
@@ -5,9 +6,8 @@ from torch import nn
 import torch
 
 # S3DIS dataset path
-raw_data_path = Path("xxx/Stanford3dDataset_v1.2_Aligned_Version")
-
-processed_data_path = raw_data_path.parent / "s3dis"
+raw_data_path = Path(dirname(abspath(__file__)) + "/data/raw")
+processed_data_path = raw_data_path.parent / "processed"
 # if you want to set the processed dataset path, uncomment here
 #processed_data_path = Path("")
 
