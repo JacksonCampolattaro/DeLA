@@ -124,7 +124,7 @@ def show_data(data: Data, use_colors: bool = True):
             cloud = polyscope.register_point_cloud(
                 prefix,
                 pos,
-                radius=0.01 / math.sqrt(batch_size),
+                radius=0.001 / math.sqrt(batch_size),
                 enabled=enabled,
                 **kwargs
             )

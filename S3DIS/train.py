@@ -34,15 +34,15 @@ def warmup_fn(model, dataset):
 
 if __name__ == '__main__':
 
-    cur_id = "03"
+    cur_id = "00"
     os.makedirs(f"output/log/{cur_id}", exist_ok=True)
     os.makedirs(f"output/model/{cur_id}", exist_ok=True)
     logfile = f"output/log/{cur_id}/out.log"
     errfile = f"output/log/{cur_id}/err.log"
     logfile = open(logfile, "a", 1)
     errfile = open(errfile, "a", 1)
-    # sys.stdout = logfile
-    # sys.stderr = errfile
+    sys.stdout = logfile
+    sys.stderr = errfile
 
     print(r"base ")
 

@@ -111,7 +111,7 @@ def from_dela(xyz, x, indices, pts_list=None, y=None, x1_to_x0=None, x0_y=None, 
     # Assign pos and x to x0
     data['x1'].pos = xyz
     data['x1'].x = x
-    data['x1'].y = y.long()
+    data['x1'].y = y.long() if y is not None else None
 
     # Assign selection indices
     data['x1'].selection_index = Index(indices[8])

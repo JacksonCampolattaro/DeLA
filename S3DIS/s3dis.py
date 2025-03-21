@@ -5,11 +5,13 @@ import math
 from torch.utils.data import Dataset, Sampler
 from os.path import dirname, abspath
 from pathlib import Path
+
+from torch_geometric.data import HeteroData
 from torch_voxel_subsample import voxel_subsample
 import sys
 
-from utils.show_data import show_data
-from utils.util import from_dela
+#from utils.show_data import show_data
+#from utils.util import from_dela
 
 sys.path.append(str(Path(__file__).absolute().parent.parent))
 raw_data_path = Path(dirname(abspath(__file__)) + "/data/raw")
@@ -59,6 +61,7 @@ class S3DIS(Dataset):
                     maxp = p
             self.paths = [maxp]
 
+        # self.paths = ['/home/jcampolattaro/Documents/DeLA/S3DIS/data/processed/5_office_25.pt']
         self.datas = [torch.load(path) for path in self.paths]
 
     def __len__(self):
@@ -123,6 +126,7 @@ class S3DIS(Dataset):
     def get_test_item(self, idx):
 
         pick = idx % self.loop * 5
+        pick = None
 
         idx //= self.loop
         xyz, col, lbl = self.datas[idx]
@@ -147,9 +151,24 @@ class S3DIS(Dataset):
 
         xyz.mul_(40)
 
-        # return from_dela(xyz=xyz, x=feature, y=lbl, indices=list(reversed(indices), x1_to_x0=full_nn, x0_y=full_lbl)
-        # show_data(from_dela(xyz=xyz, x=feature, y=lbl, indices=list(reversed(indices)), x1_to_x0=full_nn, x0_y=full_lbl))
-        return xyz, feature, indices, full_nn, full_lbl
+        # show_data(HeteroData(
+        #     x0=dict(
+        #         pos=full_xyz * 40,
+        #         y=full_lbl,
+        #     ),
+        #     x1=dict(
+        #         pos=xyz,
+        #         y=lbl,
+        #     ),
+        #     x1__to__x0=dict(
+        #         edge_index=torch.stack([
+        #             full_nn,
+        #             torch.arange(full_nn.size(0))
+        #         ])
+        #     ),
+        # ))
+        # print(from_dela(xyz=xyz, x=feature, y=lbl, indices=list(reversed(indices)), x1_to_x0=full_nn, x0_y=full_lbl))
+        return xyz, feature, indices, full_nn, full_lbl, full_xyz, lbl
 
     def knn(self, xyz: torch.Tensor, grid_size: list, k: list, indices: list, full_xyz: torch.Tensor = None):
         """

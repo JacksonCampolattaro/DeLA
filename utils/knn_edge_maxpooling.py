@@ -12,6 +12,8 @@ from torch_geometric.utils import sort_edge_index
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_max
 
+from .cutils import knn_edge_maxpooling as ref_kemp
+
 
 class MaxPoolConvolution(MessagePassing):
     def __init__(self, in_channels: int):
@@ -77,4 +79,8 @@ def knn_maxpooling(x, knn):
 
 
 def knn_edge_maxpooling(x, knn):
-    return knn_maxpooling(x, knn) - x
+    print('checking...')
+    result = knn_maxpooling(x, knn) - x
+    ref_result = ref_kemp(x, knn)
+    assert (result == ref_result).all()
+    return result
